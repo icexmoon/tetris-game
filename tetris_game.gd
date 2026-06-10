@@ -5,6 +5,7 @@ const CELL_SIZE = 32
 const GRID_WIDTH = 10
 const GRID_HEIGHT = 20
 const FALL_SPEED = 0.8
+const DRAG_SENSITIVITY = 15
 
 # 颜色
 var colors = [
@@ -37,13 +38,16 @@ var current_x = 0
 var current_y = 0
 var score = 0
 
+# 鼠标拖拽临时变量
+var mouse_down = false
+var mouse_start_pos = Vector2.ZERO
+var drag_handled = false
+
 @onready var game_field = $GameField
 @onready var score_label = $Label
 @onready var fall_timer = $FallTimer
 
 func _ready():
-	print("游戏开始初始化...")
-	
 	# 初始化网格
 	grid = []
 	for y in range(GRID_HEIGHT):
@@ -52,25 +56,24 @@ func _ready():
 			row.append(0)
 		grid.append(row)
 	
-	# 计时器设置
-	fall_timer.wait_time = FALL_SPEED
+	# 计时器
 	fall_timer.timeout.connect(_on_fall_timer)
+	fall_timer.wait_time = FALL_SPEED
+	fall_timer.start()
 	
-	# 生成第一个方块
+	# 生成方块
 	new_shape()
 	update_score()
 	
-	# 把游戏区域居中
+	# 游戏区域居中
 	game_field.position = Vector2(
 		(get_viewport_rect().size.x - GRID_WIDTH * CELL_SIZE) / 2,
 		(get_viewport_rect().size.y - GRID_HEIGHT * CELL_SIZE) / 2
 	)
 	
-	print("初始化完成！")
 	update_grid()
 
 func new_shape():
-	print("生成新方块...")
 	var idx = randi() % shapes.size()
 	current_shape = shapes[idx]
 	current_color = idx + 1
@@ -78,11 +81,11 @@ func new_shape():
 	current_y = 0
 
 	if not is_valid_position(current_shape, current_x, current_y):
-		print("游戏结束！")
 		get_tree().quit()
 
 func _on_fall_timer():
 	move_down()
+	fall_timer.start()
 
 func move_down():
 	if is_valid_position(current_shape, current_x, current_y + 1):
@@ -135,17 +138,14 @@ func clear_lines():
 		update_score()
 
 func update_grid():
-	# 清空旧格子
 	for child in game_field.get_children():
 		child.queue_free()
 	
-	# 绘制网格里的方块
 	for y in range(GRID_HEIGHT):
 		for x in range(GRID_WIDTH):
 			if grid[y][x] != 0:
 				draw_cell(x, y, colors[grid[y][x]])
 	
-	# 绘制当前方块
 	for row in range(current_shape.size()):
 		for col in range(current_shape[row].size()):
 			if current_shape[row][col] != 0:
@@ -153,11 +153,10 @@ func update_grid():
 				var y = current_y + row
 				draw_cell(x, y, colors[current_color])
 
-# ========== 已修复：ColorRect 属性 ==========
 func draw_cell(x, y, color):
 	var cell = ColorRect.new()
-	cell.size = Vector2(CELL_SIZE - 2, CELL_SIZE - 2)  # 修复这里
-	cell.position = Vector2(x * CELL_SIZE, y * CELL_SIZE) # 修复这里
+	cell.size = Vector2(CELL_SIZE - 2, CELL_SIZE - 2)
+	cell.position = Vector2(x * CELL_SIZE, y * CELL_SIZE)
 	cell.color = color
 	game_field.add_child(cell)
 
@@ -180,13 +179,57 @@ func move_dir(dir):
 func update_score():
 	score_label.text = "分数: " + str(score)
 
-func _input(event):
-	if event is InputEventScreenTouch and event.pressed:
-		rotate_shape()
+# 统一输入处理：键盘 + 鼠标 + 触屏
+func _input(event: InputEvent) -> void:
+	# ========== 触屏（安卓真机） ==========
+	if event is InputEventScreenTouch:
+		if not event.pressed:
+			rotate_shape()
+		mouse_down = event.pressed
+		mouse_start_pos = event.position
+		drag_handled = false
+		return
+	
 	if event is InputEventScreenDrag:
-		if event.relative.x > 15:
+		if drag_handled:
+			return
+		if event.relative.x > DRAG_SENSITIVITY:
 			move_dir(1)
-		elif event.relative.x < -15:
+			drag_handled = true
+		elif event.relative.x < -DRAG_SENSITIVITY:
 			move_dir(-1)
-		if event.relative.y > 15:
+			drag_handled = true
+		if event.relative.y > DRAG_SENSITIVITY:
 			move_down()
+			drag_handled = true
+		return
+
+	# ========== 鼠标（编辑器内） ==========
+	if event is InputEventMouseButton:
+		mouse_down = event.pressed
+		if mouse_down:
+			mouse_start_pos = event.position
+			drag_handled = false
+		else:
+			# 单击鼠标 = 旋转
+			if not drag_handled:
+				rotate_shape()
+		return
+	
+	if event is InputEventMouseMotion and mouse_down and not drag_handled:
+		var delta = event.position - mouse_start_pos
+		if abs(delta.x) > DRAG_SENSITIVITY:
+			move_dir(1 if delta.x > 0 else -1)
+			drag_handled = true
+		elif delta.y > DRAG_SENSITIVITY:
+			move_down()
+			drag_handled = true
+		return
+
+	# ========== 键盘（电脑通用） ==========
+	if event is InputEventKey and event.pressed:
+		match event.keycode:
+			KEY_LEFT: move_dir(-1)
+			KEY_RIGHT: move_dir(1)
+			KEY_DOWN: move_down()
+			KEY_SPACE: rotate_shape()
