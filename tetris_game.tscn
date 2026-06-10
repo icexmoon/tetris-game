@@ -1,0 +1,28 @@
+[gd_scene format=3 uid="uid://b7huah1g6hmiv"]
+
+[ext_resource type="Script" uid="uid://bpgyiknhg735i" path="res://tetris_game.gd" id="1_12p5m"]
+
+[node name="TetrisGame" type="Control" unique_id=1043952016]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+script = ExtResource("1_12p5m")
+
+[node name="ColorRect" type="ColorRect" parent="." unique_id=610623662]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 40.0
+color = Color(0, 0, 0, 1)
+
+[node name="FallTimer" type="Timer" parent="." unique_id=1699629663]
+wait_time = 0.8
+autostart = true
+
+[node name="Label" type="Label" parent="." unique_id=1109181155]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 23.0
+
+[node name="GameField" type="Node2D" parent="." unique_id=1077902017]
+position = Vector2(80, 80)
