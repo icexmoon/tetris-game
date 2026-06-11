@@ -1,11 +1,14 @@
 extends Control
 
-# ================= 游戏配置 =================
-const CELL_SIZE = 32
+# ================= 游戏固定配置（行列不变） =================
 const GRID_WIDTH = 10
 const GRID_HEIGHT = 20
 const FALL_SPEED = 0.8
 const DRAG_SENSITIVITY = 15
+# 边框/线条颜色
+const BORDER_COLOR = Color(1, 1, 1)
+const LINE_COLOR = Color(0.3, 0.3, 0.3)
+const LINE_WIDTH = 1
 
 # 颜色
 var colors = [
@@ -37,8 +40,9 @@ var current_color = 0
 var current_x = 0
 var current_y = 0
 var score = 0
+var CELL_SIZE = 1  # 运行时动态计算
 
-# 鼠标拖拽临时变量
+# 鼠标/触屏临时变量
 var mouse_down = false
 var mouse_start_pos = Vector2.ZERO
 var drag_handled = false
@@ -48,7 +52,22 @@ var drag_handled = false
 @onready var fall_timer = $FallTimer
 
 func _ready():
-	# 初始化网格
+	# ========== 动态计算格子大小 & 自适应屏幕 ==========
+	var view_size = get_viewport_rect().size
+	# 边距，可自行微调大小
+	var margin_top = 40
+	var margin_bottom = 20
+	var side_margin = 10
+	
+	var usable_height = view_size.y - margin_top - margin_bottom
+	var usable_width = view_size.x - side_margin * 2
+
+	# 按宽高比例计算单格尺寸，取最小值保证完整显示
+	var cell_by_width = usable_width / GRID_WIDTH
+	var cell_by_height = usable_height / GRID_HEIGHT
+	CELL_SIZE = floor(min(cell_by_width, cell_by_height))
+
+	# 初始化网格数据
 	grid = []
 	for y in range(GRID_HEIGHT):
 		var row = []
@@ -61,14 +80,16 @@ func _ready():
 	fall_timer.wait_time = FALL_SPEED
 	fall_timer.start()
 	
-	# 生成方块
+	# 生成初始方块
 	new_shape()
 	update_score()
 	
-	# 游戏区域居中
+	# 修复：使用 position 替代 rect_position
+	var total_w = GRID_WIDTH * CELL_SIZE
+	var total_h = GRID_HEIGHT * CELL_SIZE
 	game_field.position = Vector2(
-		(get_viewport_rect().size.x - GRID_WIDTH * CELL_SIZE) / 2,
-		(get_viewport_rect().size.y - GRID_HEIGHT * CELL_SIZE) / 2
+		(view_size.x - total_w) / 2,
+		margin_top
 	)
 	
 	update_grid()
@@ -138,14 +159,20 @@ func clear_lines():
 		update_score()
 
 func update_grid():
+	# 清空旧元素
 	for child in game_field.get_children():
 		child.queue_free()
 	
+	# 绘制边框+网格线
+	draw_border_and_lines()
+	
+	# 绘制落地方块
 	for y in range(GRID_HEIGHT):
 		for x in range(GRID_WIDTH):
 			if grid[y][x] != 0:
 				draw_cell(x, y, colors[grid[y][x]])
 	
+	# 绘制当前活动方块
 	for row in range(current_shape.size()):
 		for col in range(current_shape[row].size()):
 			if current_shape[row][col] != 0:
@@ -153,10 +180,40 @@ func update_grid():
 				var y = current_y + row
 				draw_cell(x, y, colors[current_color])
 
+# 绘制边框与网格线
+func draw_border_and_lines():
+	var total_w = GRID_WIDTH * CELL_SIZE
+	var total_h = GRID_HEIGHT * CELL_SIZE
+	# 外边框
+	var border = ColorRect.new()
+	border.size = Vector2(total_w, total_h)
+	border.position = Vector2(0, 0)
+	border.color = BORDER_COLOR
+	border.z_index = -10
+	game_field.add_child(border)
+
+	# 垂直线
+	for x in range(GRID_WIDTH + 1):
+		var line = ColorRect.new()
+		line.size = Vector2(LINE_WIDTH, total_h)
+		line.position = Vector2(x * CELL_SIZE, 0)
+		line.color = LINE_COLOR
+		line.z_index = -5
+		game_field.add_child(line)
+
+	# 水平线
+	for y in range(GRID_HEIGHT + 1):
+		var line = ColorRect.new()
+		line.size = Vector2(total_w, LINE_WIDTH)
+		line.position = Vector2(0, y * CELL_SIZE)
+		line.color = LINE_COLOR
+		line.z_index = -5
+		game_field.add_child(line)
+
 func draw_cell(x, y, color):
 	var cell = ColorRect.new()
 	cell.size = Vector2(CELL_SIZE - 2, CELL_SIZE - 2)
-	cell.position = Vector2(x * CELL_SIZE, y * CELL_SIZE)
+	cell.position = Vector2(x * CELL_SIZE + 1, y * CELL_SIZE + 1)
 	cell.color = color
 	game_field.add_child(cell)
 
@@ -179,39 +236,40 @@ func move_dir(dir):
 func update_score():
 	score_label.text = "分数: " + str(score)
 
-# 统一输入处理：键盘 + 鼠标 + 触屏
+# 输入处理（安卓触屏优先）
 func _input(event: InputEvent) -> void:
-	# ========== 触屏（安卓真机） ==========
+	# 安卓触屏事件
 	if event is InputEventScreenTouch:
-		if not event.pressed:
+		if event.pressed:
 			rotate_shape()
-		mouse_down = event.pressed
-		mouse_start_pos = event.position
-		drag_handled = false
+			mouse_down = true
+			mouse_start_pos = event.position
+			drag_handled = false
+		else:
+			mouse_down = false
 		return
 	
+	# 触屏滑动
 	if event is InputEventScreenDrag:
 		if drag_handled:
 			return
-		if event.relative.x > DRAG_SENSITIVITY:
-			move_dir(1)
+		var delta_x = event.relative.x
+		var delta_y = event.relative.y
+		if abs(delta_x) > DRAG_SENSITIVITY:
+			move_dir(1 if delta_x > 0 else -1)
 			drag_handled = true
-		elif event.relative.x < -DRAG_SENSITIVITY:
-			move_dir(-1)
-			drag_handled = true
-		if event.relative.y > DRAG_SENSITIVITY:
+		elif delta_y > DRAG_SENSITIVITY:
 			move_down()
 			drag_handled = true
 		return
 
-	# ========== 鼠标（编辑器内） ==========
+	# 编辑器鼠标
 	if event is InputEventMouseButton:
 		mouse_down = event.pressed
 		if mouse_down:
 			mouse_start_pos = event.position
 			drag_handled = false
 		else:
-			# 单击鼠标 = 旋转
 			if not drag_handled:
 				rotate_shape()
 		return
@@ -226,7 +284,7 @@ func _input(event: InputEvent) -> void:
 			drag_handled = true
 		return
 
-	# ========== 键盘（电脑通用） ==========
+	# 键盘控制
 	if event is InputEventKey and event.pressed:
 		match event.keycode:
 			KEY_LEFT: move_dir(-1)
